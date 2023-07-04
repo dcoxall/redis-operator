@@ -127,7 +127,8 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 			}
 		}
 
-		slave, err := r.redisClient.GetSlaveOf(rp.Status.PodIP, rport, password)
+		connectionOptions := redis.NewRedisConnectionOptions(rp.Status.PodIP, rport, password)
+		slave, err := r.redisClient.GetSlaveOf(connectionOptions)
 		if err != nil {
 			r.logger.Errorf("Get slave of master failed, maybe this node is not ready, pod ip: %s", rp.Status.PodIP)
 			return err
@@ -141,11 +142,16 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 
 // CheckSentinelNumberInMemory controls that the provided sentinel has only the living sentinels on its memory.
 func (r *RedisFailoverChecker) CheckSentinelNumberInMemory(sentinel string, rf *redisfailoverv1.RedisFailover) error {
-	nSentinels, err := r.redisClient.GetNumberSentinelsInMemory(sentinel)
+	connectionOptions := redis.NewSentinelConnectionOptions(sentinel)
+	nSentinels, err := r.redisClient.GetNumberSentinelsInMemory(connectionOptions)
 	if err != nil {
 		return err
-	} else if nSentinels != rf.Spec.Sentinel.Replicas {
-		return errors.New("sentinels in memory mismatch")
+	} else if nSentinels != rf.Spec.Sentinel.Replicas-1 {
+		return fmt.Errorf(
+			"sentinels in memory mismatch (%d/%d)",
+			nSentinels,
+			rf.Spec.Sentinel.Replicas - 1,
+		)
 	}
 	return nil
 }
@@ -170,7 +176,8 @@ func (r *RedisFailoverChecker) CheckIfMasterLocalhost(rFailover *redisfailoverv1
 	}
 	rport := getRedisPort(rFailover.Spec.Redis.Port)
 	for _, sip := range redisIps {
-		master, err := r.redisClient.GetSlaveOf(sip, rport, password)
+		connectionOptions := redis.NewRedisConnectionOptions(sip, rport, password)
+		master, err := r.redisClient.GetSlaveOf(connectionOptions)
 		if err != nil {
 			r.logger.Warningf("CheckIfMasterLocalhost -- GetSlaveOf Failed")
 			return false, err
@@ -204,13 +211,14 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 	}
 	if len(sentinels) < int(getQuorum(rFailover)) {
 		unhealthyCnt = int(getQuorum(rFailover)) - len(sentinels)
-		r.logger.Warningf("insufficnet sentinel to reach Quorum - Unhealthy count: %d", unhealthyCnt)
-		return unhealthyCnt, errors.New("insufficnet sentinel to reach Quorum")
+		r.logger.Warningf("insufficent sentinel to reach Quorum - Unhealthy count: %d", unhealthyCnt)
+		return unhealthyCnt, errors.New("insufficent sentinel to reach Quorum")
 	}
 
 	unhealthyCnt = 0
 	for _, sip := range sentinels {
-		err = r.redisClient.SentinelCheckQuorum(sip)
+		connectionOptions := redis.NewSentinelConnectionOptions(sip)
+		err = r.redisClient.SentinelCheckQuorum(connectionOptions)
 		if err != nil {
 			unhealthyCnt += 1
 		} else {
@@ -220,25 +228,29 @@ func (r *RedisFailoverChecker) CheckSentinelQuorum(rFailover *redisfailoverv1.Re
 	if unhealthyCnt < int(getQuorum(rFailover)) {
 		return unhealthyCnt, nil
 	} else {
-		r.logger.Errorf("insufficnet sentinel to reach Quorum - Unhealthy count: %d", unhealthyCnt)
-		return unhealthyCnt, errors.New("insufficnet sentinel to reach Quorum")
+		r.logger.Errorf("insufficent sentinel to reach Quorum - Unhealthy count: %d", unhealthyCnt)
+		return unhealthyCnt, errors.New("insufficent sentinel to reach Quorum")
 	}
 }
 
 // CheckSentinelSlavesNumberInMemory controls that the provided sentinel has only the expected slaves number.
 func (r *RedisFailoverChecker) CheckSentinelSlavesNumberInMemory(sentinel string, rf *redisfailoverv1.RedisFailover) error {
-	nSlaves, err := r.redisClient.GetNumberSentinelSlavesInMemory(sentinel)
+	connectionOptions := redis.NewSentinelConnectionOptions(sentinel)
+	nSlaves, err := r.redisClient.GetNumberSentinelSlavesInMemory(connectionOptions)
 	if err != nil {
 		return err
 	} else {
+		targetReplicaCount := rf.Spec.Redis.Replicas - 1
 		if rf.Bootstrapping() {
-			if nSlaves != rf.Spec.Redis.Replicas {
-				return errors.New("redis slaves in sentinel memory mismatch")
-			}
-		} else {
-			if nSlaves != rf.Spec.Redis.Replicas-1 {
-				return errors.New("redis slaves in sentinel memory mismatch")
-			}
+			targetReplicaCount++
+		}
+
+		if nSlaves != targetReplicaCount {
+			return fmt.Errorf(
+				"redis slaves in sentinel memory mismatch (%d/%d)",
+				nSlaves,
+				targetReplicaCount,
+			)
 		}
 	}
 	return nil
@@ -252,7 +264,8 @@ func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel string, monitor ...
 	if len(monitor) > 1 {
 		monitorPort = monitor[1]
 	}
-	actualMonitorIP, actualMonitorPort, err := r.redisClient.GetSentinelMonitor(sentinel)
+	connectionOptions := redis.NewSentinelConnectionOptions(sentinel)
+	actualMonitorIP, actualMonitorPort, err := r.redisClient.GetSentinelMonitor(connectionOptions)
 	if err != nil {
 		return err
 	}
@@ -277,7 +290,8 @@ func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (s
 	masters := []string{}
 	rport := getRedisPort(rf.Spec.Redis.Port)
 	for _, rip := range rips {
-		master, err := r.redisClient.IsMaster(rip, rport, password)
+		connectionOptions := redis.NewRedisConnectionOptions(rip, rport, password)
+		master, err := r.redisClient.IsMaster(connectionOptions)
 		if err != nil {
 			r.logger.Errorf("Get redis info failed, maybe this node is not ready, pod ip: %s", rip)
 			continue
@@ -310,7 +324,8 @@ func (r *RedisFailoverChecker) GetNumberMasters(rf *redisfailoverv1.RedisFailove
 
 	rport := getRedisPort(rf.Spec.Redis.Port)
 	for _, rip := range rips {
-		master, err := r.redisClient.IsMaster(rip, rport, password)
+		connectionOptions := redis.NewRedisConnectionOptions(rip, rport, password)
+		master, err := r.redisClient.IsMaster(connectionOptions)
 		if err != nil {
 			r.logger.Errorf("Get redis info failed, maybe this node is not ready, pod ip: %s", rip)
 			continue
@@ -389,7 +404,8 @@ func (r *RedisFailoverChecker) GetRedisesSlavesPods(rf *redisfailoverv1.RedisFai
 	rport := getRedisPort(rf.Spec.Redis.Port)
 	for _, rp := range rps.Items {
 		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil { // Only work with running
-			master, err := r.redisClient.IsMaster(rp.Status.PodIP, rport, password)
+			connectionOptions := redis.NewRedisConnectionOptions(rp.Status.PodIP, rport, password)
+			master, err := r.redisClient.IsMaster(connectionOptions)
 			if err != nil {
 				return []string{}, err
 			}
@@ -416,7 +432,8 @@ func (r *RedisFailoverChecker) GetRedisesMasterPod(rFailover *redisfailoverv1.Re
 	rport := getRedisPort(rFailover.Spec.Redis.Port)
 	for _, rp := range rps.Items {
 		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil { // Only work with running
-			master, err := r.redisClient.IsMaster(rp.Status.PodIP, rport, password)
+			connectionOptions := redis.NewRedisConnectionOptions(rp.Status.PodIP, rport, password)
+			master, err := r.redisClient.IsMaster(connectionOptions)
 			if err != nil {
 				return "", err
 			}
@@ -471,7 +488,8 @@ func (r *RedisFailoverChecker) CheckRedisSlavesReady(ip string, rFailover *redis
 	}
 
 	port := getRedisPort(rFailover.Spec.Redis.Port)
-	return r.redisClient.SlaveIsReady(ip, port, password)
+	connectionOptions := redis.NewRedisConnectionOptions(ip, port, password)
+	return r.redisClient.SlaveIsReady(connectionOptions)
 }
 
 // IsRedisRunning returns true if all the pods are Running
