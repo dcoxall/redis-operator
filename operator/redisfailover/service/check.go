@@ -150,7 +150,7 @@ func (r *RedisFailoverChecker) CheckSentinelNumberInMemory(sentinel string, rf *
 		return fmt.Errorf(
 			"sentinels in memory mismatch (%d/%d)",
 			nSentinels,
-			rf.Spec.Sentinel.Replicas - 1,
+			rf.Spec.Sentinel.Replicas-1,
 		)
 	}
 	return nil

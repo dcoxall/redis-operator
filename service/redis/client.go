@@ -2,11 +2,11 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"regexp"
 	"strings"
-	"crypto/tls"
 
 	rediscli "github.com/redis/go-redis/v9"
 	"github.com/spotahome/redis-operator/log"
@@ -15,12 +15,12 @@ import (
 
 type RedisConnectionOptions interface {
 	GetRedisClient() *rediscli.Client
-	GetIP()          string
+	GetIP() string
 }
 
 type SentinelConnectionOptions interface {
 	GetSentinelClient() *rediscli.SentinelClient
-	GetIP()          string
+	GetIP() string
 }
 
 type connectionOpts struct {
@@ -32,7 +32,7 @@ type connectionOpts struct {
 }
 
 func NewRedisConnectionOptions(ip, port, password string) RedisConnectionOptions {
-	return &connectionOpts {
+	return &connectionOpts{
 		ip:       ip,
 		port:     port,
 		password: password,
@@ -40,7 +40,7 @@ func NewRedisConnectionOptions(ip, port, password string) RedisConnectionOptions
 }
 
 func NewSentinelConnectionOptions(ip string) SentinelConnectionOptions {
-	return &connectionOpts {
+	return &connectionOpts{
 		ip:   ip,
 		port: sentinelPort,
 	}
@@ -54,7 +54,6 @@ func (connOpts *connectionOpts) GetSentinelClient() *rediscli.SentinelClient {
 	}
 	return rediscli.NewSentinelClient(options)
 }
-
 
 func (connOpts *connectionOpts) GetRedisClient() *rediscli.Client {
 	options := &rediscli.Options{

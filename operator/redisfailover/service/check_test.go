@@ -18,6 +18,7 @@ import (
 	mK8SService "github.com/spotahome/redis-operator/mocks/service/k8s"
 	mRedisService "github.com/spotahome/redis-operator/mocks/service/redis"
 	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
+	"github.com/spotahome/redis-operator/service/redis"
 )
 
 func generateRF() *redisfailoverv1.RedisFailover {
@@ -34,6 +35,18 @@ func generateRF() *redisfailoverv1.RedisFailover {
 				Replicas: int32(3),
 			},
 		},
+	}
+}
+
+func redisConnectionOptionMatcher(ip string) func(redis.RedisConnectionOptions) bool {
+	return func(connOpts redis.RedisConnectionOptions) bool {
+		return connOpts.GetIP() == ip
+	}
+}
+
+func sentinelConnectionOptionMatcher(ip string) func(redis.SentinelConnectionOptions) bool {
+	return func(connOpts redis.SentinelConnectionOptions) bool {
+		return connOpts.GetIP() == ip
 	}
 }
 
@@ -187,7 +200,7 @@ func TestCheckAllSlavesFromMasterGetSlaveOfError(t *testing.T) {
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Once().Return(nil)
 	mr := &mRedisService.Client{}
-	mr.On("GetSlaveOf", "", "0", "").Once().Return("", errors.New(""))
+	mr.On("GetSlaveOf", mock.Anything).Once().Return("", errors.New(""))
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -215,7 +228,8 @@ func TestCheckAllSlavesFromMasterDifferentMaster(t *testing.T) {
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Once().Return(nil)
 	mr := &mRedisService.Client{}
-	mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return("1.1.1.1", nil)
+	ipMatcher := mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))
+	mr.On("GetSlaveOf", ipMatcher).Once().Return("1.1.1.1", nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -243,7 +257,8 @@ func TestCheckAllSlavesFromMaster(t *testing.T) {
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	ms.On("UpdatePodLabels", namespace, mock.AnythingOfType("string"), mock.Anything).Once().Return(nil)
 	mr := &mRedisService.Client{}
-	mr.On("GetSlaveOf", "0.0.0.0", "0", "").Once().Return("1.1.1.1", nil)
+	ipMatcher := mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))
+	mr.On("GetSlaveOf", ipMatcher).Once().Return("1.1.1.1", nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -258,7 +273,8 @@ func TestCheckSentinelNumberInMemoryGetDeploymentPodsError(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberSentinelsInMemory", "1.1.1.1").Once().Return(int32(0), errors.New("expected error"))
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("1.1.1.1"))
+	mr.On("GetNumberSentinelsInMemory", ipMatcher).Once().Return(int32(0), errors.New("expected error"))
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -273,7 +289,8 @@ func TestCheckSentinelNumberInMemoryGetNumberSentinelInMemoryError(t *testing.T)
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberSentinelsInMemory", "1.1.1.1").Once().Return(int32(0), errors.New(""))
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("1.1.1.1"))
+	mr.On("GetNumberSentinelsInMemory", ipMatcher).Once().Return(int32(0), errors.New(""))
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -288,7 +305,8 @@ func TestCheckSentinelNumberInMemoryNumberMismatch(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberSentinelsInMemory", "1.1.1.1").Once().Return(int32(4), nil)
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("1.1.1.1"))
+	mr.On("GetNumberSentinelsInMemory", ipMatcher).Once().Return(int32(4), nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -303,7 +321,8 @@ func TestCheckSentinelNumberInMemory(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberSentinelsInMemory", "1.1.1.1").Once().Return(int32(3), nil)
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("1.1.1.1"))
+	mr.On("GetNumberSentinelsInMemory", ipMatcher).Once().Return(int32(2), nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -318,7 +337,8 @@ func TestCheckSentinelSlavesNumberInMemoryGetNumberSentinelSlavesInMemoryError(t
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberSentinelSlavesInMemory", "1.1.1.1").Once().Return(int32(0), errors.New(""))
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("1.1.1.1"))
+	mr.On("GetNumberSentinelSlavesInMemory", ipMatcher).Once().Return(int32(0), errors.New(""))
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -333,7 +353,8 @@ func TestCheckSentinelSlavesNumberInMemoryReplicasMismatch(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberSentinelSlavesInMemory", "1.1.1.1").Once().Return(int32(3), nil)
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("1.1.1.1"))
+	mr.On("GetNumberSentinelSlavesInMemory", ipMatcher).Once().Return(int32(3), nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -349,7 +370,8 @@ func TestCheckSentinelSlavesNumberInMemory(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetNumberSentinelSlavesInMemory", "1.1.1.1").Once().Return(int32(4), nil)
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("1.1.1.1"))
+	mr.On("GetNumberSentinelSlavesInMemory", ipMatcher).Once().Return(int32(4), nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -362,7 +384,8 @@ func TestCheckSentinelMonitorGetSentinelMonitorError(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetSentinelMonitor", "0.0.0.0").Once().Return("", "", errors.New(""))
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("0.0.0.0"))
+	mr.On("GetSentinelMonitor", ipMatcher).Once().Return("", "", errors.New(""))
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -375,7 +398,8 @@ func TestCheckSentinelMonitorMismatch(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetSentinelMonitor", "0.0.0.0").Once().Return("2.2.2.2", "6379", nil)
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("0.0.0.0"))
+	mr.On("GetSentinelMonitor", ipMatcher).Once().Return("2.2.2.2", "6379", nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -388,7 +412,8 @@ func TestCheckSentinelMonitor(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetSentinelMonitor", "0.0.0.0").Once().Return("1.1.1.1", "6379", nil)
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("0.0.0.0"))
+	mr.On("GetSentinelMonitor", ipMatcher).Once().Return("1.1.1.1", "6379", nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -401,7 +426,8 @@ func TestCheckSentinelMonitorWithPort(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetSentinelMonitor", "0.0.0.0").Once().Return("1.1.1.1", "6379", nil)
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("0.0.0.0"))
+	mr.On("GetSentinelMonitor", ipMatcher).Once().Return("1.1.1.1", "6379", nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -414,7 +440,8 @@ func TestCheckSentinelMonitorWithPortMismatch(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetSentinelMonitor", "0.0.0.0").Once().Return("1.1.1.1", "6379", nil)
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("0.0.0.0"))
+	mr.On("GetSentinelMonitor", ipMatcher).Once().Return("1.1.1.1", "6379", nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -427,7 +454,8 @@ func TestCheckSentinelMonitorWithPortIPMismatch(t *testing.T) {
 
 	ms := &mK8SService.Services{}
 	mr := &mRedisService.Client{}
-	mr.On("GetSentinelMonitor", "0.0.0.0").Once().Return("1.1.1.1", "6379", nil)
+	ipMatcher := mock.MatchedBy(sentinelConnectionOptionMatcher("0.0.0.0"))
+	mr.On("GetSentinelMonitor", ipMatcher).Once().Return("1.1.1.1", "6379", nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -469,7 +497,8 @@ func TestGetMasterIPIsMasterError(t *testing.T) {
 	ms := &mK8SService.Services{}
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	mr := &mRedisService.Client{}
-	mr.On("IsMaster", "0.0.0.0", "0", "").Once().Return(false, errors.New(""))
+	ipMatcher := mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))
+	mr.On("IsMaster", ipMatcher).Once().Return(false, errors.New(""))
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -502,8 +531,8 @@ func TestGetMasterIPMultipleMastersError(t *testing.T) {
 	ms := &mK8SService.Services{}
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	mr := &mRedisService.Client{}
-	mr.On("IsMaster", "0.0.0.0", "0", "").Once().Return(true, nil)
-	mr.On("IsMaster", "1.1.1.1", "0", "").Once().Return(true, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))).Once().Return(true, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("1.1.1.1"))).Once().Return(true, nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -536,8 +565,8 @@ func TestGetMasterIP(t *testing.T) {
 	ms := &mK8SService.Services{}
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	mr := &mRedisService.Client{}
-	mr.On("IsMaster", "0.0.0.0", "0", "").Once().Return(true, nil)
-	mr.On("IsMaster", "1.1.1.1", "0", "").Once().Return(false, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))).Once().Return(true, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("1.1.1.1"))).Once().Return(false, nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -580,7 +609,7 @@ func TestGetNumberMastersIsMasterError(t *testing.T) {
 	ms := &mK8SService.Services{}
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	mr := &mRedisService.Client{}
-	mr.On("IsMaster", "0.0.0.0", "0", "").Once().Return(true, errors.New(""))
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))).Once().Return(true, errors.New(""))
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -613,8 +642,8 @@ func TestGetNumberMasters(t *testing.T) {
 	ms := &mK8SService.Services{}
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	mr := &mRedisService.Client{}
-	mr.On("IsMaster", "0.0.0.0", "0", "").Once().Return(true, nil)
-	mr.On("IsMaster", "1.1.1.1", "0", "").Once().Return(false, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))).Once().Return(true, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("1.1.1.1"))).Once().Return(false, nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -648,8 +677,8 @@ func TestGetNumberMastersTwo(t *testing.T) {
 	ms := &mK8SService.Services{}
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	mr := &mRedisService.Client{}
-	mr.On("IsMaster", "0.0.0.0", "0", "").Once().Return(true, nil)
-	mr.On("IsMaster", "1.1.1.1", "0", "").Once().Return(true, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))).Once().Return(true, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("1.1.1.1"))).Once().Return(true, nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 
@@ -753,8 +782,8 @@ func TestGetRedisPodsNames(t *testing.T) {
 	ms := &mK8SService.Services{}
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
 	mr := &mRedisService.Client{}
-	mr.On("IsMaster", "0.0.0.0", "0", "").Twice().Return(false, nil)
-	mr.On("IsMaster", "1.1.1.1", "0", "").Once().Return(true, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))).Twice().Return(false, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("1.1.1.1"))).Once().Return(true, nil)
 
 	checker := rfservice.NewRedisFailoverChecker(ms, mr, log.DummyLogger{}, metrics.Dummy)
 	master, err := checker.GetRedisesMasterPod(rf)
@@ -764,8 +793,8 @@ func TestGetRedisPodsNames(t *testing.T) {
 	assert.Equal(master, "master")
 
 	ms.On("GetStatefulSetPods", namespace, rfservice.GetRedisName(rf)).Once().Return(pods, nil)
-	mr.On("IsMaster", "0.0.0.0", "0", "").Twice().Return(false, nil)
-	mr.On("IsMaster", "1.1.1.1", "0", "").Once().Return(true, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("0.0.0.0"))).Twice().Return(false, nil)
+	mr.On("IsMaster", mock.MatchedBy(redisConnectionOptionMatcher("1.1.1.1"))).Once().Return(true, nil)
 
 	namePods, err := checker.GetRedisesSlavesPods(rf)
 
