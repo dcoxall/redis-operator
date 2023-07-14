@@ -27,39 +27,42 @@ type connectionOpts struct {
 	ip         string
 	port       string
 	password   string
-	tlsEnabled bool
 	tlsConfig  *tls.Config
 }
 
-func NewRedisConnectionOptions(ip, port, password string) RedisConnectionOptions {
+func NewRedisConnectionOptions(ip, port, password string, tlsConfig *tls.Config) RedisConnectionOptions {
 	return &connectionOpts{
-		ip:       ip,
-		port:     port,
-		password: password,
+		ip:        ip,
+		port:      port,
+		password:  password,
+		tlsConfig: tlsConfig,
 	}
 }
 
-func NewSentinelConnectionOptions(ip string) SentinelConnectionOptions {
+func NewSentinelConnectionOptions(ip string, tlsConfig *tls.Config) SentinelConnectionOptions {
 	return &connectionOpts{
-		ip:   ip,
-		port: sentinelPort,
+		ip:        ip,
+		port:      sentinelPort,
+		tlsConfig: tlsConfig,
 	}
 }
 
 func (connOpts *connectionOpts) GetSentinelClient() *rediscli.SentinelClient {
 	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(connOpts.ip, sentinelPort),
-		Password: "",
-		DB:       0,
+		Addr:      net.JoinHostPort(connOpts.ip, sentinelPort),
+		TLSConfig: connOpts.tlsConfig,
+		Password:  "",
+		DB:        0,
 	}
 	return rediscli.NewSentinelClient(options)
 }
 
 func (connOpts *connectionOpts) GetRedisClient() *rediscli.Client {
 	options := &rediscli.Options{
-		Addr:     net.JoinHostPort(connOpts.ip, connOpts.port),
-		Password: connOpts.password,
-		DB:       0,
+		Addr:      net.JoinHostPort(connOpts.ip, connOpts.port),
+		TLSConfig: connOpts.tlsConfig,
+		Password:  connOpts.password,
+		DB:        0,
 	}
 	return rediscli.NewClient(options)
 }

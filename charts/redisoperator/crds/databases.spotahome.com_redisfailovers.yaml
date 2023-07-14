@@ -57,6 +57,12 @@ spec:
                   secretPath:
                     type: string
                 type: object
+              tls:
+                description: Defines the use of TLS for redis
+                properties:
+                  secretName:
+                    type: string
+                type: object
               bootstrapNode:
                 description: BootstrapSettings contains settings about a potential
                   bootstrap node

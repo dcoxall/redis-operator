@@ -25,6 +25,7 @@ type RedisFailoverSpec struct {
 	Redis          RedisSettings      `json:"redis,omitempty"`
 	Sentinel       SentinelSettings   `json:"sentinel,omitempty"`
 	Auth           AuthSettings       `json:"auth,omitempty"`
+	TLS            RedisTLS           `json:"tls,omitempty"`
 	LabelWhitelist []string           `json:"labelWhitelist,omitempty"`
 	BootstrapNode  *BootstrapSettings `json:"bootstrapNode,omitempty"`
 }
@@ -33,6 +34,11 @@ type RedisFailoverSpec struct {
 type RedisCommandRename struct {
 	From string `json:"from,omitempty"`
 	To   string `json:"to,omitempty"`
+}
+
+// RedisTLS defines the TLS connection preferences for redis
+type RedisTLS struct {
+	SecretName string `json:"secretName,omitempty"`
 }
 
 // RedisSettings defines the specification of the redis cluster

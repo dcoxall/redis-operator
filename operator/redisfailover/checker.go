@@ -7,6 +7,7 @@ import (
 
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/metrics"
+	"github.com/spotahome/redis-operator/service/k8s"
 )
 
 // UpdateRedisesPods if the running version of pods are equal to the statefulset one
@@ -216,9 +217,14 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return err
 	}
 
+	tlsConfig, err := k8s.GetRedisTLSConfig(r.k8sService, rf)
+	if err != nil {
+		return err
+	}
+
 	port := getRedisPort(rf.Spec.Redis.Port)
 	for _, sip := range sentinels {
-		err = r.rfChecker.CheckSentinelMonitor(sip, master, port)
+		err = r.rfChecker.CheckSentinelMonitor(sip, tlsConfig, master, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Fixing sentinel not monitoring expected master: %s", err.Error())
@@ -295,12 +301,17 @@ func (r *RedisFailoverHandler) applyRedisCustomConfig(rf *redisfailoverv1.RedisF
 }
 
 func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFailover, sentinels []string) error {
+	tlsConfig, err := k8s.GetRedisTLSConfig(r.k8sService, rf)
+	if err != nil {
+		return err
+	}
+
 	for _, sip := range sentinels {
 		err := r.rfChecker.CheckSentinelNumberInMemory(sip, rf)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_NUMBER_IN_MEMORY_MISMATCH, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s %s. resetting", sip, err)
-			if err := r.rfHealer.RestoreSentinel(sip); err != nil {
+			if err := r.rfHealer.RestoreSentinel(sip, tlsConfig); err != nil {
 				return err
 			}
 		}
@@ -311,7 +322,7 @@ func (r *RedisFailoverHandler) checkAndHealSentinels(rf *redisfailoverv1.RedisFa
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.REDIS_SLAVES_NUMBER_IN_MEMORY_MISMATCH, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Sentinel %s %s. resetting", sip, err)
-			if err := r.rfHealer.RestoreSentinel(sip); err != nil {
+			if err := r.rfHealer.RestoreSentinel(sip, tlsConfig); err != nil {
 				return err
 			}
 		}
